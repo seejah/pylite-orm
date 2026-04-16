@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/lite-orm/ 
+      url: https://pypi.org/p/pylite-orm/ 
     permissions:
       id-token: write 
     steps:
