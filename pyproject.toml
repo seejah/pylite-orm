@@ -1,10 +1,10 @@
 [project]
-name = "lite-orm"
+name = "pylite-orm"
 version = "0.1.0"
-description = "Add your description here"
+description = "A lightweight SQLite ORM for Python"
 readme = "README.md"
 authors = [
-    { name = "cai", email = "cai@heyeh.cn" }
+    { name = "heyeh", email = "heyeh@heyeh.cn" }
 ]
 requires-python = ">=3.11"
 dependencies = []
@@ -21,4 +21,4 @@ dev = [
 ]
 
 [project.scripts]
-lite-migr = "lite_orm:cli"
+lite-migr = "pylite_orm:cli"
