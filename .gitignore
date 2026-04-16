@@ -3,12 +3,10 @@ __pycache__/
 .pytest_cache/
 .benchmarks/
 .vscode/
+.venv
 pytest/
-*.py[oc]
 build/
 dist/
 wheels/
+*.py[oc]
 *.egg-info
-
-# Virtual environments
-.venv
