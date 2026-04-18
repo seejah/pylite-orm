@@ -39,7 +39,7 @@ pip install pylite-orm
 from pylite_orm import  DbModel, DbField, DbType
 from datetime import datetime
 
-class User(Model):
+class User(DbModel):
     id = DbField(db_type=DbType.INT, pk=True)
     name = DbField(db_type=DbType.TEXT)
     age = DbField(db_type=DbType.INT)
@@ -74,8 +74,11 @@ dbs.insert(User).item(user).exec()
 #### 查询数据
 
 ```python
+# 单条查询
 user: User = dbs.select(User).filter(User.id == 1).first()
+# 多条查询
 users: list[User] = dbs.select(User).filter(User.age > 20).all()
+# 多条查询（填充到字典）
 users_dicts: list[dict] = dbs.select(User).filter(User.age > 20).serial()
 ```
 
@@ -83,7 +86,7 @@ users_dicts: list[dict] = dbs.select(User).filter(User.age > 20).serial()
 
 ```python
 user.age = 35
-data = user.asdict(exec_unset=True)
+data = user.asdict(exec_unset=True) # 只更新修改过的字段，即age
 dbs.update(User).item(data).filter(User.id == user.id).exec()
 ```
 

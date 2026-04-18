@@ -39,7 +39,7 @@ pip install pylite-orm
 from pylite_orm import  DbModel, DbField, DbType
 from datetime import datetime
 
-class User(Model):
+class User(DbModel):
     id = DbField(db_type=DbType.INT, pk=True)
     name = DbField(db_type=DbType.TEXT)
     age = DbField(db_type=DbType.INT)
@@ -74,8 +74,11 @@ dbs.insert(User).item(user).exec()
 #### Query Data
 
 ```python
+# single query
 user: User = dbs.select(User).filter(User.id == 1).first()
+# multiple query
 users: list[User] = dbs.select(User).filter(User.age > 20).all()
+# multiple query (populate to dictionary)
 users_dicts: list[dict] = dbs.select(User).filter(User.age > 20).serial()
 ```
 
@@ -83,11 +86,11 @@ users_dicts: list[dict] = dbs.select(User).filter(User.age > 20).serial()
 
 ```python
 user.age = 35
-data = user.asdict(exec_unset=True)
+data = user.asdict(exec_unset=True) # only update the modified data
 dbs.update(User).item(data).filter(User.id == user.id).exec()
 ```
 
-#### 2.7 Delete Data
+#### Delete Data
 
 ```python
 dbs.delete(User).filter(User.id == user.id).exec()
