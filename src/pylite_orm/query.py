@@ -413,7 +413,7 @@ class UpdateBuilder(BaseBuilder[T]):
         self._set_clause = ''
         self._set_params: list[Any] = []
 
-    def set(self, data:dict|None=None, **kwargs) -> 'UpdateBuilder[T]':
+    def item(self, data:dict|None=None, **kwargs) -> 'UpdateBuilder[T]':
         merged = {**(data or {}), **kwargs}       
         if not merged:  raise ValueError('Update operation must provide fields to update')
         parts, params = [], []

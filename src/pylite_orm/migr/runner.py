@@ -3,7 +3,7 @@ import importlib.util
 import logging
 from pathlib import Path
 
-logger = logging.getLogger('lite_orm.migrate')
+logger = logging.getLogger('pylite_orm.migr')
 
 class MigrationRunner:
     def __init__(self, db_path: str, migrations_dir: str):

@@ -51,7 +51,6 @@ def cmd_create(args):
     
     db_exists = Path(db_path).exists()
     conn = sqlite3.connect(db_path) if db_exists else sqlite3.connect(':memory:')
-    
     try:
         from .inspector import get_db_schema, get_model_schema
         from .diff import calculate_diff
@@ -59,16 +58,15 @@ def cmd_create(args):
 
         db_schema = get_db_schema(conn)
         model_schema = get_model_schema(models_dir)
+        #print('模型结构', model_schema, '\n数据库结构', db_schema)
         ops = calculate_diff(db_schema, model_schema)
         
         warnings = []
         if not db_exists:
-            warnings.append('Database file does not exist; full table creation SQL will be generated.')
-            
+            warnings.append('Database file does not exist; full table creation SQL will be generated.')            
         if not ops:
             print('✅ The database structure is completely consistent with the model; no migration files need to be generated.')
             return
-            
         code = render_migration_code(ops, warnings)
     except Exception as e:
         print(f'❌ Error occurred while analyzing differences: {e}')

@@ -13,7 +13,7 @@ def render_migration_code(ops: list, warnings: list) -> str:
             lines.append(f'# {w}')
         lines.append('# ======================================================\n')
 
-    lines.append('from lite_orm.migr.operations import Op\n')
+    lines.append('from pylite_orm.migr.operations import Op\n')
     lines.append('def upgrade(op: Op):')
     
     if not ops:

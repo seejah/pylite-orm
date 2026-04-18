@@ -12,7 +12,7 @@ def get_db_schema(conn: sqlite3.Connection) -> dict[str, dict]:
     tables = [row[0] for row in cursor.fetchall()]
     
     for table in tables:
-        schema[table] = {'columns': {}, 'indexes': []}
+        schema[table] = {'columns': {}, 'indexes': [], 'relation': []}
         cols_cursor = conn.execute(f'PRAGMA table_info("{table}")')
         for row in cols_cursor.fetchall():
             cid, name, dtype, notnull, dflt_value, pk = row
@@ -29,6 +29,15 @@ def get_db_schema(conn: sqlite3.Connection) -> dict[str, dict]:
             cols_idx_cursor = conn.execute(f'PRAGMA index_info("{idx_name}")')
             idx_cols = [r[2] for r in cols_idx_cursor.fetchall()]
             schema[table]['indexes'].append({'name': idx_name, 'columns': idx_cols, 'unique': bool(unique)})
+        fk_cursor = conn.execute(f'PRAGMA foreign_key_list("{table}")')
+        for row in fk_cursor.fetchall():
+            id, seq, table_name, from_col, to_col, on_update, on_delete, match = row
+            schema[table]['relation'].append({
+                'col': from_col,
+                'ref_table': table_name,
+                'ref_col': to_col,
+                'on_delete': on_delete
+            })
     return schema
 
 def get_model_schema(models_dir: str) -> dict[str, dict]:
@@ -68,8 +77,7 @@ def get_model_schema(models_dir: str) -> dict[str, dict]:
                 'type': db_type.upper(),
                 'nullable': meta.get('nullable', True),
                 'pk': meta.get('pk', False),
-                'default': meta.get('default') if meta.get('default') is not None else None,
-                'auto_time': meta.get('auto_time', False)
+                'default': meta.get('default') if meta.get('default') is not None else None
             }
             fk_target = meta.get('relation')
             if fk_target:

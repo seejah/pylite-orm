@@ -95,7 +95,7 @@ class DbModel:
         DbModel._REGISTRY[cls.__name__] = cls
         cls_fields = {}
         for kls in reversed(cls.__mro__):
-            for name, value in vars(kls).items():
+            for name, value in list(vars(kls).items()):
                 if isinstance(value, Field) and name not in cls_fields:
                     value.name = name
                     value.owner = cls

@@ -6,7 +6,7 @@ class DbConn:
     - db_path: Database file path
     - return: Connection instance
     '''
-    _ORM_LOGGER = "lite_orm" 
+    _ORM_LOGGER = "pylite_orm" 
 
     def __init__(self, db_path: str, debug: bool = False):
         self.db_path = db_path

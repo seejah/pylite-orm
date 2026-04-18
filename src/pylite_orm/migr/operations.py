@@ -78,7 +78,7 @@ class Op:
 
     def rebuild_table(self, table_name: str, new_columns_def: list[tuple], copy_columns: list[str], relation: list[tuple] = None):
         tbl = self._safe_name(table_name, 'table_name')
-        temp_tbl = f'_lite_orm_temp_{tbl}'
+        temp_tbl = f'_pylite_orm_temp_{tbl}'
         safe_copy_cols = ', '.join([self._safe_name(c) for c in copy_columns])
         self.create_table(temp_tbl, new_columns_def, relation=relation, if_not_exists=False)
         self.conn.execute(f'INSERT INTO {temp_tbl} ({safe_copy_cols}) SELECT {safe_copy_cols} FROM {tbl}')

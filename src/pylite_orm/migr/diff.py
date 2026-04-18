@@ -48,10 +48,8 @@ def calculate_diff(db_schema: dict, model_schema: dict) -> list:
         if table not in db_schema: continue
         db_cols = db_schema[table]['columns']
         m_cols = m_def['columns']
-        
         need_rebuild = False
         add_cols = {}
-
         for col_name, col_meta in m_cols.items():
             if col_name not in db_cols:
                 add_cols[col_name] = col_meta
@@ -59,8 +57,7 @@ def calculate_diff(db_schema: dict, model_schema: dict) -> list:
                 db_col_meta = db_cols[col_name]
                 if (col_meta['type'] != db_col_meta['type'] or 
                     col_meta['nullable'] != db_col_meta['nullable'] or
-                    col_meta['pk'] != db_col_meta['pk'] or
-                    col_meta.get('auto_time',False) != db_col_meta.get('auto_time',False)):
+                    col_meta['pk'] != db_col_meta['pk']):
                     need_rebuild = True
                     break
         for col_name in db_cols:
@@ -69,7 +66,6 @@ def calculate_diff(db_schema: dict, model_schema: dict) -> list:
                 break
         db_indexes = {idx['name']: idx for idx in db_schema[table].get('indexes', [])}
         m_indexes = {idx['name']: idx for idx in m_def.get('indexes', [])}
-        
         if set(db_indexes.keys()) != set(m_indexes.keys()):
             need_rebuild = True
         else:
@@ -78,35 +74,26 @@ def calculate_diff(db_schema: dict, model_schema: dict) -> list:
                     db_indexes[idx_name]['unique'] != m_indexes[idx_name]['unique']):
                     need_rebuild = True
                     break
-        
         db_relations = db_schema[table].get('relation', [])
         m_relations = m_def.get('relation', [])
-        
         if len(db_relations) != len(m_relations):
             need_rebuild = True
         else:
-            for i, db_rel in enumerate(db_relations):
-                m_rel = m_relations[i]
-                if (db_rel['col'] != m_rel['col'] or
-                    db_rel['ref_table'] != m_rel['ref_table'] or
-                    db_rel['ref_col'] != m_rel['ref_col'] or
-                    db_rel['on_delete'] != m_rel['on_delete']):
-                    need_rebuild = True
-                    break
-                
+            db_rel_set = {(rel['col'], rel['ref_table'], rel['ref_col'], rel['on_delete']) for rel in db_relations}
+            m_rel_set  = {(rel['col'], rel['ref_table'], rel['ref_col'], rel['on_delete']) for rel in m_relations} 
+            if db_rel_set != m_rel_set:
+                need_rebuild = True
         if need_rebuild:
             copy_cols = [c for c in m_cols.keys() if c in db_cols]
             ops.append(RebuildTableOp(table=table, new_columns_def=m_cols, copy_columns=copy_cols, indexes=m_def.get('indexes', []), 
                 relation=m_def.get('relation', [])))
         elif add_cols:
             for col_name, col_meta in add_cols.items():
-                ops.append(AddColumnOp(table=table, column=col_name, column_def=col_meta))
-                
+                ops.append(AddColumnOp(table=table, column=col_name, column_def=col_meta))  
         if not need_rebuild:
             for idx_name, idx_meta in m_indexes.items():
                 if idx_name not in db_indexes:
                     ops.append(AddIndexOp(table=table, index_name=idx_name, columns=idx_meta['columns'], unique=idx_meta['unique']))
-            
             for idx_name in db_indexes:
                 if idx_name not in m_indexes:
                     ops.append(DropIndexOp(index_name=idx_name))
