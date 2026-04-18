@@ -6,9 +6,9 @@
 
 pylite-orm is a relatively new lightweight SQLite ORM tool based on Python. It provides developers with a concise and intuitive interface for SQLite operations.
 
-In the context of many excellent Python ORM frameworks already existing (such as SQLAlchemy, Tortoise-ORM, Peewee), why use pylite-orm?
+Given that there are already many excellent Python ORMs (such as SQLAlchemy, Tortoise-ORM, Peewee), why do we still need pylite-orm?
 
-Obviously, in some specific scenarios, such as desktop software, mobile applications, embedded systems, and script development, SQLite is usually used as a single-file database. In these cases, using the aforementioned ORMs seems heavy, while PyLite-ORM provides a simpler API and smaller memory footprint—it only has a few simple syntaxes and is only 40K in size! This is the meaning of pyLite-orm's existence.
+Because in many scenarios — desktop software, mobile applications, small CMSs, embedded systems, automation scripts — using a single-file database like SQLite with those ORMs can feel too heavy. pylite-orm offers a simple API and minimal memory footprint — it has only a small amount of syntax, and the entire library is just 40KB in size! That is clearly the value and advantage of pylite-orm.
 
 Features of pylite-orm:
 
@@ -21,17 +21,19 @@ Features of pylite-orm:
 - Support for populating query results into Python objects, lists, dictionaries, and the most popular Pydantic models, etc.
 - Built-in data migration tool, production-ready
 
-If you are familiar with SQLAlchemy, Peewee, or other popular Python ORM frameworks, you can immediately start using PyLite-ORM.
+If you are familiar with SQLAlchemy/SQLModel, Peewee, or other popular Python ORMs, you can start using pylite-orm immediately with zero learning cost.
 
-## 1 Install pylite-orm
+If you are new to ORMs, pylite-orm allows you to deliver code quickly, and in the future, mastering other ORMs will become even easier.
+
+### Install pylite-orm
 
 ```bash
 pip install pylite-orm
 ```
 
-## 2 Getting Started Examples
+### Getting Started Examples
 
-### 2.1 Define Data Model
+#### Define Data Model
 
 ```python
 from pylite_orm import  DbModel, DbField, DbType
@@ -44,7 +46,7 @@ class User(Model):
     created_at = DbField(db_type=DbType.TEXT, default_factory=datetime.now)
 ```
 
-### 2.2 Create Table Using Migration Commands
+#### Create Table Using Migration Commands
 
 ```bash
 # This is a set of operations under the command line prompt.
@@ -53,7 +55,7 @@ pylite-migr create user
 pylite-migr upgrade
 ```
 
-### 2.3 Connect to Database
+#### Connect to Database
 
 ```python
 from pylite_orm import DbConn, DbSession
@@ -62,20 +64,22 @@ db = DbConn("mydb.db")
 dbs = DbSession(db)
 ```
 
-### 2.4 Insert Data
+#### Insert Data
 
 ```python
 user = User(name="Tom", age=25)
 dbs.insert(User).item(user).exec()
 ```
 
-### 2.5 Query Data
+#### Query Data
 
 ```python
-users = dbs.select(User).filter(User.age > 20).all()
+user: User = dbs.select(User).filter(User.id == 1).first()
+users: list[User] = dbs.select(User).filter(User.age > 20).all()
+users_dicts: list[dict] = dbs.select(User).filter(User.age > 20).serial()
 ```
 
-### 2.6 Update Data
+#### Update Data
 
 ```python
 user.age = 35
@@ -83,7 +87,7 @@ data = user.asdict(exec_unset=True)
 dbs.update(User).item(data).filter(User.id == user.id).exec()
 ```
 
-### 2.7 Delete Data
+#### 2.7 Delete Data
 
 ```python
 dbs.delete(User).filter(User.id == user.id).exec()
