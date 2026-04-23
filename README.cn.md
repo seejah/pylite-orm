@@ -4,11 +4,11 @@
 
 ---
 
-pylite-orm 是一个较新的基于 Python 的 sqlite ORM 轻量工具。为开发者提供简洁、直观的 Sqlite 操作接口。
+`pylite-orm` 是一个较新的 Python 版 sqlite ORM 轻量工具。为开发者提供简洁、直观的 Sqlite 操作接口。
 
-在已经有很多优秀 Python ORM （如 SQLAlchemy、Tortoise-ORM、Peewee）情况下，为什么还要有pylite-orm？
+在已经有很多优秀 Python ORM （如 SQLAlchemy、Tortoise-ORM、Peewee）情况下，为什么还要有 pylite-orm ？
 
-因为在许多场景中——桌面软件、移动应用、小型CMS、嵌入式系统、自动化脚本，使用sqlite这种单文件数据库时，如果使用前面提到的那些 ORM 会显得很重。 pylite-orm 则提供简单的 API 和极小的内存占用——它只有少量语法，并且整个库仅40Kb大小！这显然就是pylite-orm 存在的价值和优势。
+因为在许多场景中——桌面软件、移动应用、小型CMS、嵌入式系统、自动化脚本，使用 sqlite 这种单文件数据库时，使用前面提到的那些 ORM 会显得很重。 pylite-orm 则提供简单的 API 和极小的内存占用——它只有少量语法、整个库仅40Kb！这就是 pylite-orm 存在的原因和优势。
 
 pylite-orm 的特点：
 
@@ -98,4 +98,4 @@ dbs.delete(User).filter(User.id == user.id).exec()
 
 一切就是这么简单！
 
-项目开发级、更复杂的查询和操作，请阅读操作指南。
+项目开发级、更复杂的查询和操作，请阅读[技术文档](https://pylite-orm.n166.net/zh)。
