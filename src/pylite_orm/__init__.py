@@ -1,7 +1,7 @@
 from .conn import DbConn
 from .session import DbSession
 from .model import DbModel, DbType, RelType, OnDelete, DbField, RelationField
-from .query import SelectBuilder, InsertBuilder, UpdateBuilder, DeleteBuilder   
+from .query import SelectBuilder, InsertBuilder, UpdateBuilder, DeleteBuilder, JoinType
 from .expr import Expr, LogicNode, Func
 
 
@@ -11,6 +11,7 @@ __all__ = [
     'DbModel',
     'DbType',
     'RelType',
+    'JoinType',
     'OnDelete',
     'DbField',
     'RelationField',

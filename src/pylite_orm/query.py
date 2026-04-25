@@ -352,7 +352,7 @@ class SelectBuilder(BaseBuilder[T]):
             logger.error('VALUE Failed: %s', e, exc_info=True)
             raise
 
-    def values(self, *columns: str | Func) -> list[Any] | list[tuple] | None:
+    def values(self, *columns: str | Func) -> list[Any] | list[tuple]:
         '''Return all values of columns'''
         safe_cols = []
         for col in columns:
@@ -366,7 +366,7 @@ class SelectBuilder(BaseBuilder[T]):
         try:
             cursor = self._session._conn.execute(sql, params)
             rows = cursor.fetchall()
-            if not rows: return None
+            if not rows: return []
             if len(safe_cols) == 1: result = [row[0] for row in rows]
             else:                   result =  [tuple(row) for row in rows]
             if len(result) == 1 and isinstance(result[0], tuple): result = list(result[0])
@@ -481,5 +481,4 @@ class DeleteBuilder(BaseBuilder[T]):
             return self._session._conn.execute(sql, w_params).rowcount
         except Exception as e:
             logger.error('DELETE Failed: %s | SQL: %s', e, sql, exc_info=True)
-            raise   
-    
+            raise
