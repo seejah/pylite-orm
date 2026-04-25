@@ -41,10 +41,12 @@ class DbConn:
             self._local.conn = conn
         return self._local.conn
 
-    def close(self):
+    def close(self, silent: bool = False):
         '''Close the current connection'''
         if hasattr(self._local, 'conn') and self._local.conn:
             try:     self._local.conn.close()
             except Exception as e:
-                logging.getLogger(self._ORM_LOGGER).debug(f'Exception occurred while closing connection (usually can be ignored): {e}')
+                if not silent:
+                    logging.getLogger(self._ORM_LOGGER).debug(f'Exception occurred while closing connection (usually can be ignored): {e}')
             finally: self._local.conn = None
+            logging.getLogger(self._ORM_LOGGER).info('SQLite connection closed')

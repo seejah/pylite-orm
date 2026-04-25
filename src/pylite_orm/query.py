@@ -2,7 +2,7 @@ from __future__ import annotations
 import re, logging
 from typing import Type, Any, Union, Generic, TypeVar, Self, TYPE_CHECKING
 if TYPE_CHECKING: from .session import DbSession
-from .model import DbModel, RelType
+from .model import DbModel, RelType, Field
 from .expr import Expr, LogicNode, Func
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,11 @@ class AttrDict(dict):
         try: return self[key]
         except KeyError: raise AttributeError(f'AttrDict object has no attribute "{key}"')
     def __setattr__(self, key, value): self[key] = value
+
+class JoinType():
+    INNER = 'INNER'
+    LEFT = 'LEFT'
+    RIGHT = 'RIGHT'
 
 
 class BaseBuilder(Generic[T]):
@@ -33,6 +38,10 @@ class BaseBuilder(Generic[T]):
             if '.' not in col and current_model_cls:
                 if col in current_model_cls.__model_fields__:
                     col = f'{current_model_cls.table_name()}.{col}'
+            if isinstance(val, Field):
+                right_col = val.name
+                if val.owner:  right_col = f'{val.owner.table_name()}.{right_col}'
+                return f'{col} {op} {right_col}', []
             if op == 'LIKE' and node.escape:
                 return f'{col} {op} ? ESCAPE ?', [val, node.escape]
             if op in ('IS NULL', 'IS NOT NULL'):
@@ -84,16 +93,18 @@ class SelectBuilder(BaseBuilder[T]):
         self._group_by = []
         self._joins = []
         self._preloads: set[str] = set()
-        self._custom_select: str | None = None  # 记录自定义 SELECT 列
-        self._col_mapping: dict[str, str] = {}  # 记录列名映射
+        self._custom_select: str | None = None
+        self._col_mapping: dict[str, str] = {}
+        self._join_params: list[Any] = []
    
-    def join(self, target_model: Type['DbModel'], on: str, join_type: str = 'LEFT') -> 'SelectBuilder[T]':
+    def join(self, target_model: Type['DbModel'], on: Expr, join_type:JoinType = JoinType.LEFT) -> 'SelectBuilder[T]':
         '''Join statement'''
         table = target_model.table_name()
-        if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'非法表名: {table}')
-        if ';' in on or '--' in on: raise ValueError('安全拦截: 检测到非法字符')
-        self._joins.append(f'{join_type} JOIN {table} ON {on}')
-        return self
+        if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'Invalid table name: {table}')
+        on_sql, on_params = self._compile(on, self._model_cls)
+        self._joins.append(f'{join_type} JOIN {table} ON {on_sql}')
+        self._join_params.extend(on_params)
+        return self        
 
     def columns(self, *columns: str | Func)  -> 'SelectBuilder[T]':
         '''Specify custom query columns (used with join, supports Func)'''
@@ -125,6 +136,7 @@ class SelectBuilder(BaseBuilder[T]):
         return self
 
     def order_by(self, *columns: str) -> 'SelectBuilder[T]':
+        '''Order by columns'''
         parts = []
         for col in columns:
             if not re.match(r'^(?:-?[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)$', col): raise ValueError(f'Invalid sort column name: {col}')
@@ -133,10 +145,12 @@ class SelectBuilder(BaseBuilder[T]):
         return self
 
     def group_by(self, *columns: str | Func) -> 'SelectBuilder[T]':
+        '''Group by columns'''
         self._group_by.extend([str(col) for col in columns])
         return self
 
     def limit(self, count: int, offset: int = 0) -> 'SelectBuilder[T]':
+        '''Limit the number of records returned'''
         self._limit_val = int(count); self._offset_val = int(offset); return self
 
     def _parse_row_to_nested(self, row_dict: dict) -> dict:
@@ -166,6 +180,7 @@ class SelectBuilder(BaseBuilder[T]):
         if not select_part:
             valid_cols = [name for name, field in self._model_cls.__model_fields__.items() if not field.metadata.get('virtual')]
             select_part = ', '.join(valid_cols) if valid_cols else '*'
+
         sql = f'SELECT {select_part} FROM {table}'
         if self._joins:    sql += ' ' + ' '.join(self._joins)
         w_sql, w_params = self._build_where()
@@ -173,7 +188,7 @@ class SelectBuilder(BaseBuilder[T]):
         if self._group_by: sql += f' GROUP BY {", ".join(self._group_by)}'
         if self._order_sql:sql += f' {self._order_sql}'
         if self._limit_val:sql += f' LIMIT {self._limit_val} OFFSET {self._offset_val}'
-        return sql, w_params
+        return sql, self._join_params + w_params
     
     def _execute_preloads(self, instances: list[T], asdict: bool = False):
         if not instances or not self._preloads: return
@@ -258,6 +273,7 @@ class SelectBuilder(BaseBuilder[T]):
                     inst.__dict__[rel_name] = indexed.get(getattr(inst, fk))
 
     def all(self) -> list[T]:
+        '''Return all records as a list of instances'''
         sql, params = self._build()
         logger.debug('%s | Params: %s', sql, params)
         try:
@@ -268,12 +284,18 @@ class SelectBuilder(BaseBuilder[T]):
                 inst.__dict__ = dict(row)
                 results.append(inst)
             self._execute_preloads(results)
-            return results if results else None
+            return results
         except Exception as e:
             logger.error("SELECT Failed: %s | SQL: %s | Params: %s", e, sql, params, exc_info=True)
             raise
 
-    def serial(self, O:None = None) -> AttrDict|list[AttrDict]|O|list[O]:
+    def serial(self, O: Type[O] = None) -> AttrDict | O | None:
+        '''Return the first record as a dictionary or instance'''
+        results = self.limit(1).serial_list(O)
+        return results[0] if results else None
+
+    def serial_list(self, O: Type[O] = None) -> list[AttrDict] | list[O]:
+        '''Return all records as a list of dictionaries or instances'''
         sql, params = self._build()
         logger.debug('%s | Params: %s', sql, params) 
         try:
@@ -290,17 +312,18 @@ class SelectBuilder(BaseBuilder[T]):
                 self._execute_preloads(instances, asdict=True)
                 serial = [AttrDict(inst.__dict__) for inst in instances]
             if O: serial = [O(**s) for s in serial]
-            if not serial:         return None
-            elif len(serial) == 1: return serial[0]
-            else:                  return serial
+            return serial
         except Exception as e:
             logger.error('SELECT Failed: %s | SQL: %s | Params: %s', e, sql, params, exc_info=True)
             raise
 
+
     def first(self) -> T | None:
+        '''Return the first record as an instance'''
         results = self.limit(1).all(); return results[0] if results else None
 
     def count(self) -> int:
+        '''Return the count of records'''
         sql, params = self._build()
         if self._group_by:
             sql = f'SELECT COUNT(*) as cnt FROM ({sql}) as _subq'
@@ -315,6 +338,7 @@ class SelectBuilder(BaseBuilder[T]):
             raise
         
     def value(self, column: str | Func) -> Any | None:
+        '''Return the first value of a column'''
         safe_str = str(column) if isinstance(column, Func) else column
         if isinstance(column, str) and not re.match(r'^[a-zA-Z0-9_]+$', safe_str):
             raise ValueError(f'Invalid column name "{safe_str}"')
@@ -328,7 +352,8 @@ class SelectBuilder(BaseBuilder[T]):
             logger.error('VALUE Failed: %s', e, exc_info=True)
             raise
 
-    def values(self, *columns: str | Func) -> list[Any] | list[tuple]:
+    def values(self, *columns: str | Func) -> list[Any] | list[tuple] | None:
+        '''Return all values of columns'''
         safe_cols = []
         for col in columns:
             if isinstance(col, Func):  safe_cols.append(str(col))
@@ -358,11 +383,13 @@ class InsertBuilder(Generic[T]):
         self._items: list = []
 
     def item(self, data: Union[T, dict, list[T], list[dict]]) -> 'InsertBuilder[T]':
+        '''Add an item to the insert builder'''
         if isinstance(data, list): self._items.extend(data)
         else:                      self._items.append(data)
         return self
     
     def exec(self) -> int:
+        '''Execute the insert operation'''
         if not self._items: return 0
         table = self._model_cls.table_name()
         if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'Invalid table name: "{table}"')
@@ -414,6 +441,7 @@ class UpdateBuilder(BaseBuilder[T]):
         self._set_params: list[Any] = []
 
     def item(self, data:dict|None=None, **kwargs) -> 'UpdateBuilder[T]':
+        '''Add an item to the update builder'''
         merged = {**(data or {}), **kwargs}       
         if not merged:  raise ValueError('Update operation must provide fields to update')
         parts, params = [], []
@@ -426,6 +454,7 @@ class UpdateBuilder(BaseBuilder[T]):
         return self
 
     def exec(self) -> int:
+        '''Execute the update operation'''
         if not self._set_clause: raise ValueError('Update operation must call .set() first')
         sql = f'UPDATE {self._model_cls.table_name()} {self._set_clause}'
         w_sql, w_params = self._build_where()
@@ -443,6 +472,7 @@ class UpdateBuilder(BaseBuilder[T]):
 
 class DeleteBuilder(BaseBuilder[T]):
     def exec(self) -> int:
+        '''Execute the delete operation'''
         sql = f'DELETE FROM {self._model_cls.table_name()}'
         w_sql, w_params = self._build_where()
         if w_sql: sql += f'{w_sql}'

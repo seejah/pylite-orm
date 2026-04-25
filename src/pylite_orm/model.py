@@ -68,6 +68,7 @@ class DbType:
 
 
 class RelType:
+    '''Relationship Type'''
     O2O = 'O2O'
     O2M = 'O2M'
     M2O = 'M2O'

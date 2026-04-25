@@ -1,5 +1,5 @@
 from __future__ import annotations
-import sqlite3, logging
+import sqlite3, logging, threading
 from typing import TypeVar, Type
 from .conn import DbConn
 from .model import DbModel
@@ -8,6 +8,8 @@ from .query import SelectBuilder, InsertBuilder, UpdateBuilder, DeleteBuilder
 logger = logging.getLogger(__name__)
 T = TypeVar('T', bound='DbModel')
 
+_session_counter = threading.local()
+
 class DbSession:
     '''数据库会话类'''
     def __init__(self, db: DbConn):
@@ -15,6 +17,8 @@ class DbSession:
         self._t_level = 0
 
     def __enter__(self) -> DbSession:
+        if not hasattr(_session_counter, 'count'):  _session_counter.count = 0
+        _session_counter.count += 1
         conn = self._conn
         if self._t_level == 0:
             logger.info('Transaction BEGIN')
@@ -40,6 +44,8 @@ class DbSession:
             else:
                 self._conn.commit()
                 logger.debug("Transaction COMMIT")
+        _session_counter.count -= 1
+        if _session_counter.count == 0:  self.db.close(silent=True)
         return False
 
     @property
