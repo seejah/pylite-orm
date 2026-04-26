@@ -8,44 +8,44 @@ from .query import SelectBuilder, InsertBuilder, UpdateBuilder, DeleteBuilder
 logger = logging.getLogger(__name__)
 T = TypeVar('T', bound='DbModel')
 
-_session_counter = threading.local()
-
 class DbSession:
     '''数据库会话类'''
     def __init__(self, db: DbConn):
         self.db = db
-        self._t_level = 0
 
     def __enter__(self) -> DbSession:
-        if not hasattr(_session_counter, 'count'):  _session_counter.count = 0
-        _session_counter.count += 1
+        if not hasattr(self.db._local, 'session_count'):  self.db._local.session_count = 0
+        self.db._local.session_count += 1
         conn = self._conn
-        if self._t_level == 0:
+        current_level = self.db._local._tx_level
+        if current_level == 0:
             logger.info('Transaction BEGIN')
             conn.execute('BEGIN IMMEDIATE')
         else:
-            conn.execute(f'SAVEPOINT sp_{self._t_level}')
-            logger.debug("Savepoint sp_%s CREATED", self._t_level)
-        self._t_level += 1
+            conn.execute(f'SAVEPOINT sp_{current_level}')
+            logger.debug("Savepoint sp_%s CREATED", current_level)
+        self.db._local._tx_level += 1
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._t_level -= 1
+        conn = self._conn
+        self.db._local._tx_level -= 1
+        current_level = self.db._local._tx_level
         if exc_type is not None:
-            if self._t_level > 0: 
-                self._conn.execute(f'ROLLBACK TO SAVEPOINT sp_{self._t_level}')
-                logger.warning("Savepoint sp_%s ROLLBACK", self._t_level)
+            if current_level > 0: 
+                conn.execute(f'ROLLBACK TO SAVEPOINT sp_{current_level}')
+                logger.warning("Savepoint sp_%s ROLLBACK", current_level)
             else:
-                self._conn.rollback()
+                conn.rollback()
                 logger.error("Transaction ROLLBACK", exc_info=True)
         else:
-            if self._t_level > 0: 
-                self._conn.execute(f'RELEASE SAVEPOINT sp_{self._t_level}')
+            if current_level > 0: 
+                conn.execute(f'RELEASE SAVEPOINT sp_{current_level}')
             else:
-                self._conn.commit()
+                conn.commit()
                 logger.debug("Transaction COMMIT")
-        _session_counter.count -= 1
-        if _session_counter.count == 0:  self.db.close(silent=True)
+        self.db._local.session_count -= 1
+        if self.db._local.session_count == 0:  self.db.close(silent=True)
         return False
 
     @property

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re, logging
-from typing import Type, Any, Union, Generic, TypeVar, Self, TYPE_CHECKING
+from typing import Type, Any, Union, Generic, TypeVar, Self, TYPE_CHECKING, get_origin, get_args
 if TYPE_CHECKING: from .session import DbSession
 from .model import DbModel, RelType, Field
 from .expr import Expr, LogicNode, Func
@@ -24,6 +24,7 @@ class JoinType():
 
 
 class BaseBuilder(Generic[T]):
+    _VALID = re.compile(r'^[a-zA-Z0-9_]+$')
     def __init__(self, session: DbSession, model_cls: Type[T]):
         self._session = session
         self._model_cls = model_cls
@@ -85,6 +86,7 @@ class BaseBuilder(Generic[T]):
 
 
 class SelectBuilder(BaseBuilder[T]):
+    _VALID_ORDERBY = re.compile(r'^(?:-?[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)$')
     def __init__(self, session: DbSession, model_cls: Type[T]):
         super().__init__(session, model_cls)
         self._order_sql = ''
@@ -100,7 +102,7 @@ class SelectBuilder(BaseBuilder[T]):
     def join(self, target_model: Type['DbModel'], on: Expr, join_type:JoinType = JoinType.LEFT) -> 'SelectBuilder[T]':
         '''Join statement'''
         table = target_model.table_name()
-        if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'Invalid table name: {table}')
+        if not self._VALID.match(table): raise ValueError(f'Invalid table name: {table}')
         on_sql, on_params = self._compile(on, self._model_cls)
         self._joins.append(f'{join_type} JOIN {table} ON {on_sql}')
         self._join_params.extend(on_params)
@@ -139,7 +141,7 @@ class SelectBuilder(BaseBuilder[T]):
         '''Order by columns'''
         parts = []
         for col in columns:
-            if not re.match(r'^(?:-?[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?)$', col): raise ValueError(f'Invalid sort column name: {col}')
+            if not self._VALID_ORDERBY.match(col): raise ValueError(f'Invalid sort column name: {col}')
             parts.append(f'{col[1:]} DESC' if col.startswith('-') else f'{col} ASC')
         self._order_sql = 'ORDER BY ' + ', '.join(parts)
         return self
@@ -175,7 +177,7 @@ class SelectBuilder(BaseBuilder[T]):
 
     def _build(self, select_override: str|None = None) -> tuple[str, list]:
         table = self._model_cls.table_name()
-        if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'Invalid table name: {table}')
+        if not self._VALID.match(table): raise ValueError(f'Invalid table name: {table}')
         select_part = select_override or self._custom_select
         if not select_part:
             valid_cols = [name for name, field in self._model_cls.__model_fields__.items() if not field.metadata.get('virtual')]
@@ -196,34 +198,28 @@ class SelectBuilder(BaseBuilder[T]):
         pks = [inst.__dict__[pk_name] for inst in instances if inst.__dict__.get(pk_name) is not None]
         if not pks: return
         def _resolve_type(hint):
-            if isinstance(hint, str):
-                if hint.startswith('list[') and hint.endswith(']'):
-                    inner = hint[5:-1]
-                    return list, [inner]
-                return hint, []
-            if hasattr(hint, '__origin__'):
-                return hint, getattr(hint, '__args__', [])
-            return hint, []
+            if not isinstance(hint, str):
+                origin = get_origin(hint)
+                args = get_args(hint)
+                if origin is list:
+                    if args and hasattr(args[0], '__name__'):  return True, args[0].__name__
+                    return True, str(args[0]) if args else None
+                if hasattr(hint, '__name__'):  return False, hint.__name__
+                return False, str(hint)
+            hint_str = hint.strip()
+            if (hint_str.startswith('list[') or hint_str.startswith('List[')) and hint_str.endswith(']'):
+                inner_str = hint_str[5:-1].strip()
+                return True, inner_str
+            return False, hint_str
         for rel_name in self._preloads:
             f_info = self._model_cls.__model_fields__.get(rel_name)
             if f_info is None or not f_info.metadata.get('relation'): continue
             type_hint = f_info.metadata.get('type_hint')
             if not type_hint:  
                 raise ValueError(f'''Preload '{rel_name}' failed: missing type hint, please use format `{rel_name}: list[TargetModel] = RelationField()`''')
-            resolved_hint, args = _resolve_type(type_hint)
-            is_list = False
-            if hasattr(resolved_hint, '__origin__') and resolved_hint.__origin__ is list:
-                is_list = True
-            elif resolved_hint is list:
-                is_list = True
-            if is_list:
-                target_model_name = args[0] if args else None
-                if not isinstance(target_model_name, str) and hasattr(target_model_name, '__name__'):
-                    target_model_name = target_model_name.__name__
-                rel_type = RelType.O2M
-            else:
-                target_model_name = resolved_hint if isinstance(resolved_hint, str) else resolved_hint.__name__
-                rel_type = RelType.M2O
+            is_list, target_model_name = _resolve_type(type_hint)
+            rel_type = RelType.O2M if is_list else RelType.M2O
+            if not target_model_name:  raise ValueError(f"Preload '{rel_name}' failed: cannot extract target model name...")
             target_cls = DbModel._REGISTRY.get(target_model_name)
             if not target_cls: raise ValueError(f'''Preload '{rel_name}' failed: associated model '{target_model_name}' not registered, please check type hint of '{rel_name}''')
             fk = f_info.metadata.get('fk')
@@ -289,6 +285,22 @@ class SelectBuilder(BaseBuilder[T]):
             logger.error("SELECT Failed: %s | SQL: %s | Params: %s", e, sql, params, exc_info=True)
             raise
 
+    def iter(self):
+        '''Return an iterator of instances'''
+        if self._preloads:
+            raise ValueError('iter() does not support preload(). For large datasets, please use join() instead to perform table join queries at the SQL layer')        
+        sql, params = self._build()
+        logger.debug('%s | Params: %s', sql, params)
+        try:
+            cursor = self._session._conn.execute(sql, params)
+            for row in cursor:
+                inst = self._model_cls.__new__(self._model_cls)
+                inst.__dict__ = dict(row)
+                yield inst
+        except Exception as e:
+            logger.error("ITER Failed: %s | SQL: %s | Params: %s", e, sql, params, exc_info=True)
+            raise
+
     def serial(self, O: Type[O] = None) -> AttrDict | O | None:
         '''Return the first record as a dictionary or instance'''
         results = self.limit(1).serial_list(O)
@@ -317,7 +329,6 @@ class SelectBuilder(BaseBuilder[T]):
             logger.error('SELECT Failed: %s | SQL: %s | Params: %s', e, sql, params, exc_info=True)
             raise
 
-
     def first(self) -> T | None:
         '''Return the first record as an instance'''
         results = self.limit(1).all(); return results[0] if results else None
@@ -340,8 +351,7 @@ class SelectBuilder(BaseBuilder[T]):
     def value(self, column: str | Func) -> Any | None:
         '''Return the first value of a column'''
         safe_str = str(column) if isinstance(column, Func) else column
-        if isinstance(column, str) and not re.match(r'^[a-zA-Z0-9_]+$', safe_str):
-            raise ValueError(f'Invalid column name "{safe_str}"')
+        if isinstance(column, str) and not self._VALID.match(safe_str):  raise ValueError(f'Invalid column name "{safe_str}"')
         sql, params = self._build(select_override=safe_str)
         if 'LIMIT' not in sql.upper(): sql += ' LIMIT 1'
         logger.debug('%s | Params: %s', sql, params)
@@ -358,7 +368,7 @@ class SelectBuilder(BaseBuilder[T]):
         for col in columns:
             if isinstance(col, Func):  safe_cols.append(str(col))
             elif isinstance(col, str):
-                if not re.match(r'^[a-zA-Z0-9_]+$', col): raise ValueError(f'Invalid column name "{col}"')
+                if not self._VALID.match(col): raise ValueError(f'Invalid column name "{col}"')
                 safe_cols.append(col)
         select_part = ', '.join(safe_cols)
         sql, params = self._build(select_override=select_part)
@@ -377,6 +387,7 @@ class SelectBuilder(BaseBuilder[T]):
 
 
 class InsertBuilder(Generic[T]):
+    _VALID = re.compile(r'^[a-zA-Z0-9_]+$')
     def __init__(self, session: DbSession, model_cls: Type[T]):
         self._session = session
         self._model_cls = model_cls
@@ -392,7 +403,7 @@ class InsertBuilder(Generic[T]):
         '''Execute the insert operation'''
         if not self._items: return 0
         table = self._model_cls.table_name()
-        if not re.match(r'^[a-zA-Z0-9_]+$', table): raise ValueError(f'Invalid table name: "{table}"')
+        if not self._VALID.match(table): raise ValueError(f'Invalid table name: "{table}"')
         valid_keys = set(self._model_cls.__model_fields__.keys())
         pk_name = self._model_cls.get_pk_name()
         processed_data = []
@@ -417,8 +428,7 @@ class InsertBuilder(Generic[T]):
         if not processed_data:
             return 0
         for key in processed_data[0].keys():
-            if not re.match(r'^[a-zA-Z0-9_]+$', key):
-                raise ValueError(f'Invalid column name "{key}"')
+            if not self._VALID.match(key): raise ValueError(f'Invalid column name "{key}"')
         keys = ', '.join(processed_data[0].keys())
         placeholders = ', '.join([f':{k}' for k in processed_data[0].keys()])
         sql = f'INSERT INTO {table} ({keys}) VALUES ({placeholders})'
@@ -434,6 +444,7 @@ class InsertBuilder(Generic[T]):
             logger.error("INSERT Failed: %s | SQL: %s", e, sql, exc_info=True)
             raise
 
+
 class UpdateBuilder(BaseBuilder[T]):
     def __init__(self, session: DbSession, model_cls: Type[T]):
         super().__init__(session, model_cls)
@@ -446,7 +457,7 @@ class UpdateBuilder(BaseBuilder[T]):
         if not merged:  raise ValueError('Update operation must provide fields to update')
         parts, params = [], []
         for k, v in merged.items():
-            if not re.match(r'^[a-zA-Z0-9_]+$', k): raise ValueError(f'Invalid column name "{k}"')
+            if not self._VALID.match(k): raise ValueError(f'Invalid column name "{k}"')
             parts.append(f'{k} = ? ')
             params.append(v)
         self._set_clause = 'SET ' + ', '.join(parts)
